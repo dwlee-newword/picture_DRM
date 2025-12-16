@@ -4,12 +4,18 @@ import {
   UseInterceptors,
   UploadedFiles,
   BadRequestException,
+  Body,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { mkdirSync } from 'fs';
 import { ImagesService } from './images.service';
 import { ApiTags, ApiConsumes, ApiBody, ApiOperation } from '@nestjs/swagger';
+
+interface RequestWithUploadDir extends Express.Request {
+  uploadDir?: string;
+}
 
 @ApiTags('images')
 @Controller('images')
@@ -37,7 +43,17 @@ export class ImagesController {
   @UseInterceptors(
     FilesInterceptor('files', 10, {
       storage: diskStorage({
-        destination: './uploads',
+        destination: (req, file, callback) => {
+          const request = req as RequestWithUploadDir;
+          if (!request.uploadDir) {
+            const randomDir = Math.floor(Math.random() * 1e10)
+              .toString()
+              .padStart(10, '0');
+            request.uploadDir = `./uploads/${randomDir}`;
+            mkdirSync(request.uploadDir, { recursive: true });
+          }
+          callback(null, request.uploadDir);
+        },
         filename: (_req, file, callback) => {
           const name = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
           const fileExtName = extname(file.originalname);
@@ -56,10 +72,10 @@ export class ImagesController {
       limits: { fileSize: 5 * 1024 * 1024 }, // 5MB per file
     }),
   )
-  uploadImages(@UploadedFiles() files: Express.Multer.File[]) {
+  async uploadImages(@UploadedFiles() files: Express.Multer.File[]) {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files provided');
     }
-    return this.imagesService.uploadImages(files);
+    return await this.imagesService.uploadImages(files);
   }
 }
